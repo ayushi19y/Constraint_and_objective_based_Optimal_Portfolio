@@ -1,0 +1,81 @@
+---
+title: "Portfolio Analytics"
+author: "Ayushi Yadav"
+date: "1/28/2021"
+output: html_document
+---
+
+### Introduction : Portfolio Analysis with Factor based models
+Factor based models have risen to fame in recent years. This paper concentrates on single factor models to optimize portfolios, specifically, variance and expected tail losses (etl). Minimized Variance is a measure of how the mean returns of the portfolio assets in question fluctuate over time. A portfolio's variance is defined by the underlying variance and correlation of the assets within it. ETL approach provides superior risk-adjusted returns and lower drawdowns as it relies on capturing closely the non-linearity of the distribution.
+
+### Analysis Methodology
+After loading the required libraries in the coding environment, a default value function is defined taking ticker values, begin year, ending year, portfolio objective (Variance or ETL), minimum and maximum asset value for box constraints as inputs. The daily stock returns are extracted for the input tickers and period. To start with  the main analysis, a Portfolio object is defined taking tickers as input for assets. The portfolio is designed to be fully invested that meaning that the weights add up to one using the add.constraint() function. Using box constraints we set the min and the max value for each asset. Using the if-else if statement, the code checks the value of the p_objective string. In further steps the program returns a list of optimal portfolio and the calculated values for internal validation depending on the type of portfolio objective. The code also prints a variance matrix and a preliminary graph visualizing daily returns to provide an explanation of the results. The function is run, first for minimized variance as an objective and then for minimized ETL as an objective.
+
+```{r message=FALSE, warning=FALSE}
+#------loading libraries---------#
+library(dplyr)
+library(ggplot2)
+library(quantmod)
+options("getSymbols.warning4.0"=FALSE)#suppress  get symbols warnings
+library(zeallot)
+library(matrixStats)
+library(PortfolioAnalytics)
+library(ROI)
+library(ROI.plugin.quadprog)
+library(ROI.plugin.glpk)
+library(reshape2)
+```
+
+```{r warning=FALSE}
+Optimal_Portfolio <- function(tic = c("CBRL", "XRX", "IBM", "NFLX", "CAT", "LRCX") , begin_year = 2017, ending_year = 2018, p_objective = "var", min_asset_val=0.05, max_asset_val = 0.3)
+{
+  tic_symbol <- as.matrix(tic)
+  daily_ret <- lapply(tic_symbol, function(x) dailyReturn(na.omit(getSymbols(x, auto.assign=FALSE))))
+  lapply(daily_ret, "[", c(1))
+  daily_returns <- do.call(merge, daily_ret)
+
+  colnames(daily_returns) <- c(tic) #rename columns with their respective ticker values
+  daily_returns <- daily_returns[paste0(begin_year,'/',ending_year)]
+  
+  portfolio_obj <- portfolio.spec(assets=colnames(daily_returns)) #creating portfolio object
+  portfolio_obj <- add.constraint(portfolio=portfolio_obj, type="weight_sum", 
+                  min_sum = 0.99, max_sum=1.01) #adding weight constraint 
+  portfolio_obj <- add.constraint(portfolio=portfolio_obj, type="box", 
+                  min=min_asset_val, max=max_asset_val) #adding box constraint
+  
+  if (p_objective == "ETL") {
+    matplot(daily_returns)
+    min_etl <- add.objective(portfolio_obj, type="risk", name="ETL")
+    optimal_port_etl <- optimize.portfolio(R=daily_returns, portfolio = min_etl, optimize_method="ROI", trace=TRUE)
+    #--------------------validating the outputs------------------#
+    etl_calc <- as.matrix(daily_returns) %*% as.matrix(optimal_port_etl$weights)
+    etl_calc <- as.data.frame(etl_calc)
+    etl_calc <- etl_calc[order(etl_calc$V1), , drop = FALSE]
+    etl_verify_temp <- etl_calc[1:ceiling(nrow(etl_calc)*.05),]
+    etl_verify <- mean(etl_verify_temp)
+    etl_verify_print <- paste0("Calculated Expected Tail Loss is ", etl_verify)
+    result_list <- list(optimal_port_etl,etl_verify_print)
+    }
+  else if (p_objective == "var") {
+    print(round(var(daily_returns), 6))
+    min_variance <- add.objective(portfolio_obj, type="risk", name="var")
+    optimal_port_var <- optimize.portfolio(R=daily_returns, portfolio = min_variance,optimize_method="ROI", trace=TRUE)
+    #--------------------validating the outputs------------------#
+    var_calc <- t(as.matrix(optimal_port_var$weights))  %*% var(daily_returns)  %*% as.matrix(optimal_port_var$weights)
+    var_verify <- as.vector(sqrt(var_calc))
+    var_verify_print <- paste0("Calculated Portfolio Variance is ", var_verify)
+    result_list <- list(optimal_port_var,var_verify_print)
+  }
+  return(result_list)
+}
+```
+
+```{r}
+Optimal_Portfolio(, , , , ,)
+```
+```{r}
+Optimal_Portfolio(, , ,"ETL" , ,)
+```
+### Discussion of Results
+When determining optimal portfolio for the ticker values by minimizing variance, it is observed that the portfolio is loaded with Cracker Barrel and IBM securities contributing a huge 30% each to the portfolio. Since the variance method is dependent on the volatility of the underlying asset, It can be concluded that the returns for these two assets have the lowest volatility making them an attractive investment option. Netflix (NFLX) and Lam Research (LRCX) stock weights are minimized, due to a high volatility in individual stock returns. This can be varified with the covariance matrix that provides the same conclusions. The other stocks have almost equal contribution to the portfolio. Unfortunately, volatility only adequately describes the risk an investor faces under fairly restrictive assumptions. This objective will give better results if the asset returns are normally distributed. It is to be noted that the Minimum Variance tool is a symmetrical objective measure, meaning that while it minimizes the drawdown risk it also reduces the upside potential
+While minimizing ETL for the same stocks different slightly different results are observed. Both the objectives load up and minimize the weights of the same stocks. Although ETL favors Caterpillar Inc.(CAT) stock, contributing almost 7% more than the Xerox stock to the portfolio. As ETL provides a richer measure of risk by better capturing the outliers in the distribution of returns, this can be observed in the daily returns graph, where Xerox returns has more drastic outliers than Caterpillar. This information helps to better plan investments by mapping risks efficiently. 
